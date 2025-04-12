@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("org.owasp.dependencycheck") version "9.2.0"
 }
 
 group = "org.example"
