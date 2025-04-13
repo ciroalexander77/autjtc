@@ -13,6 +13,7 @@ Feature: POST CREAR ALIADO
     Then status 200
     And print response
 
+#escenario
   Scenario: Error 422 en Crear un nuevo aliado
     Given path 'company/allieds'
     And header Authorization = 'Bearer ' + token
