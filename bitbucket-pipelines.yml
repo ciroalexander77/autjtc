@@ -1,16 +1,117 @@
-image: openjdk:17
+# --- Imagen Base Optimizada para Gradle ---
+image: gradle:7.6-jdk11 # O ajusta a la versión que uses, compatible con Java 16
 
-pipelines:
-  default:
-    - step:
-        name: Build and Test
-        caches:
-          - gradle
-        script:
-          - ./gradlew clean test
-        artifacts:
-          - build/reports/tests/test/**
-
+# --- Definiciones ---
 definitions:
   caches:
-    gradle: ~/.gradle
+    gradle: ~/.gradle/caches
+    gradlewrapper: ~/.gradle/wrapper
+  steps:
+    # Paso opcional para compilar y asegurar que todo esté ok antes de paralelo
+    # Podría ser `./gradlew classes testClasses` si solo quieres compilar
+    - step: &build-check-step
+        name: 'Compile & Check Setup (Gradle)'
+        caches:
+          - gradle
+          - gradlewrapper
+        script:
+          - chmod +x ./gradlew
+          # Usamos 'build' que compila y corre tests por defecto, pero aquí
+          # podríamos querer solo compilar o una tarea más ligera si 'test'
+          # se ejecuta en paralelo después. 'assemble' solo compila y empaqueta.
+          # O 'classes' para solo compilar. Usemos 'build' por ahora, pero
+          # SIN shadowJar. build incluye la ejecución de 'test'.
+          # Si quieres evitar correr tests aquí y solo hacerlo en paralelo: usa 'assemble'
+          - ./gradlew clean assemble
+        # No necesitamos artefactos de este paso si solo es una compilación/preparación
+
+    - step: &karate-tests-step
+        name: 'Run Karate Tests (Gradle)'
+        caches:
+          - gradle
+          - gradlewrapper
+        script:
+          - chmod +x ./gradlew
+          # Ejecuta la tarea 'test' pasando el entorno
+          - ./gradlew test -Dkarate.env=staging
+        artifacts:
+          # Guarda los reportes de prueba de Karate/JUnit
+          - build/reports/tests/test/**
+          - build/karate-reports/** # Si Karate genera reportes aquí
+
+    - step: &lint-step
+        name: 'Code Quality / Linting (Gradle)'
+        caches:
+          - gradle
+          - gradlewrapper
+        script:
+          - chmod +x ./gradlew
+          # Ejecuta tareas de calidad si las tienes configuradas (Checkstyle, PMD, etc.)
+          # La tarea 'check' usualmente las agrupa.
+          - ./gradlew check
+        artifacts:
+          # Guarda reportes de linting si se generan
+          - build/reports/**
+
+    - step: &security-scan-step
+        name: 'Security Scan (Dependencies - Gradle)'
+        caches:
+          - gradle
+          - gradlewrapper
+        script:
+          - chmod +x ./gradlew
+          # Ejecuta el análisis de dependencias si tienes el plugin configurado
+          - ./gradlew dependencyCheckAnalyze --info
+        artifacts:
+          # Guarda el reporte de OWASP DC si se genera
+          - build/reports/dependency-check-report.html
+
+# --- Pipelines por Rama ---
+pipelines:
+  default: # Pipeline para ramas de features
+    - step:
+        <<: *karate-tests-step
+        name: 'Run Quick Karate Tests (Smoke)'
+        script:
+          - chmod +x ./gradlew
+          # Ejecuta solo tests con tag @smoke en entorno dev
+          - ./gradlew test -Dkarate.env=dev -Dkarate.options="--tags @smoke"
+        artifacts:
+          - build/reports/tests/test/**
+          - build/karate-reports/**
+    - step: *lint-step # Ejecuta linting rápido en ramas de feature
+
+  branches:
+    develop: # Pipeline para la rama de integración
+      - parallel: # Ejecuta todo en paralelo para feedback rápido
+          - step:
+              <<: *karate-tests-step
+              name: 'Run Karate Tests (Staging Env)'
+              script:
+                - chmod +x ./gradlew
+                # Asegúrate que el entorno 'staging' esté configurado en Karate
+                - ./gradlew test -Dkarate.env=staging
+              artifacts:
+                - build/reports/tests/test/**
+                - build/karate-reports/**
+          - step: *lint-step
+          - step: *security-scan-step
+      # --- NO HAY PASO DE DESPLIEGUE ---
+      # Este repositorio contiene pruebas, no una aplicación a desplegar.
+
+    main: # Pipeline para la rama principal
+      - parallel:
+          - step:
+              <<: *karate-tests-step
+              name: 'Run Karate Tests (Prod-like Env)'
+              script:
+                - chmod +x ./gradlew
+                # Ejecuta tests contra entorno Prod o Pre-Prod
+                - ./gradlew test -Dkarate.env=prod
+              artifacts:
+                - build/reports/tests/test/**
+                - build/karate-reports/**
+          - step: *lint-step
+          - step: *security-scan-step
+      # --- NO HAY PASO DE DESPLIEGUE MANUAL ---
+      # Este repositorio contiene pruebas, no una aplicación a desplegar.
