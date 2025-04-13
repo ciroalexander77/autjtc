@@ -1,0 +1,16 @@
+image: openjdk:17
+
+pipelines:
+  default:
+    - step:
+        name: Build and Test
+        caches:
+          - gradle
+        script:
+          - ./gradlew clean test
+        artifacts:
+          - build/reports/tests/test/**
+
+definitions:
+  caches:
+    gradle: ~/.gradle
