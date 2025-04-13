@@ -1,4 +1,4 @@
-# --- Imagen Base Optimizada para Gradle ---
+# --- pipeline ---
 image: gradle:7.6-jdk11 # O ajusta a la versión que uses, compatible con Java 16
 
 # --- Definiciones ---
